@@ -32,11 +32,36 @@ def _src(cfg) -> tuple[str, str]:
     return u.get("repo") or DEFAULT_REPO, u.get("branch") or DEFAULT_BRANCH
 
 
-def remote_version(cfg=None, timeout=15) -> str:
+_ref_cache: dict = {}
+
+
+def _ref(cfg=None, timeout=15) -> str:
+    """브랜치의 최신 커밋 SHA. raw.githubusercontent.com은 브랜치 주소를 5분간 캐시하므로
+    SHA로 받아야 방금 올린 버전이 바로 보인다. API 실패(한도 등) 시 브랜치 이름으로 대신한다."""
     import requests
 
     repo, br = _src(cfg)
-    r = requests.get(f"https://raw.githubusercontent.com/{repo}/{br}/chzzk2yt/__init__.py",
+    hit = _ref_cache.get((repo, br))
+    if hit and time.time() - hit[1] < 60:
+        return hit[0]
+    try:
+        r = requests.get(f"https://api.github.com/repos/{repo}/commits/{br}", timeout=timeout,
+                         headers={"Accept": "application/vnd.github.sha"})
+        r.raise_for_status()
+        sha = r.text.strip()
+        if not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise ValueError(sha[:80])
+    except Exception:  # noqa: BLE001
+        return br
+    _ref_cache[(repo, br)] = (sha, time.time())
+    return sha
+
+
+def remote_version(cfg=None, timeout=15) -> str:
+    import requests
+
+    repo, _ = _src(cfg)
+    r = requests.get(f"https://raw.githubusercontent.com/{repo}/{_ref(cfg)}/chzzk2yt/__init__.py",
                      timeout=timeout, headers={"Cache-Control": "no-cache"})
     r.raise_for_status()
     m = re.search(r'__version__\s*=\s*"([^"]+)"', r.text)
@@ -86,8 +111,8 @@ def whats_new(cur: str, new: str, cfg=None, timeout=15) -> str:
     try:
         import requests
 
-        repo, br = _src(cfg)
-        r = requests.get(f"https://raw.githubusercontent.com/{repo}/{br}/VERSION.txt",
+        repo, _ = _src(cfg)
+        r = requests.get(f"https://raw.githubusercontent.com/{repo}/{_ref(cfg)}/VERSION.txt",
                          timeout=timeout, headers={"Cache-Control": "no-cache"})
         r.raise_for_status()
         text = r.content.decode("utf-8-sig", errors="replace")
@@ -124,7 +149,9 @@ def apply(root: Path, cfg=None, force: bool = False, log=print) -> bool:
     if notes:
         log("이번 업데이트 내용:\n" + notes)
     log(f"새 버전 v{new} 받는 중… (현재 v{cur}, github.com/{repo})")
-    r = requests.get(f"https://codeload.github.com/{repo}/zip/refs/heads/{br}", timeout=120)
+    ref = _ref(cfg)  # 버전 확인과 같은 커밋을 받는다
+    r = requests.get(f"https://codeload.github.com/{repo}/zip/" + (ref if ref != br else f"refs/heads/{br}"),
+                     timeout=120)
     r.raise_for_status()
     z = zipfile.ZipFile(io.BytesIO(r.content))
     names = [n for n in z.namelist() if not n.endswith("/")]
