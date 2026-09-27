@@ -1,5 +1,7 @@
 # chzzk2yt — 치지직 다시보기 → 유튜브 자동 업로드
 
+[![보안 검사 (CodeQL)](https://github.com/beubeulling-sudo/chzztube/actions/workflows/codeql.yml/badge.svg)](https://github.com/beubeulling-sudo/chzztube/actions/workflows/codeql.yml)
+
 **처음 쓰는 분은 `사용설명서.html`을 여세요.** 설치부터 구글 API 파일 만들기, 문제 해결까지 순서대로 정리돼 있습니다.
 
 ## 빠른 시작
@@ -34,6 +36,36 @@
 프로그램의 **업데이트** 버튼(또는 명령창 메뉴 28번)이 이 저장소에서 최신 파일을 받아 교체합니다. `config.toml`과 `data/`(설정·기록·인증)는 그대로 유지됩니다.
 
 v1.1 이하를 쓰던 분은 한 번만 수동으로: Download ZIP → 압축 푼 폴더의 `chzzk2yt` 폴더(코드)를 설치 폴더의 같은 폴더에 덮어쓰기 → 프로그램 재시작. 이후로는 버튼으로 업데이트됩니다.
+
+## 안전성
+실행 파일(.exe) 없이 이 저장소의 파이썬·PowerShell 코드가 전부입니다. 누구나 코드를 읽어 볼 수 있고, 코드를 올릴 때마다 GitHub가 자동으로 보안 검사(CodeQL)를 합니다. 결과는 위 배지와 [Actions 탭](https://github.com/beubeulling-sudo/chzztube/actions/workflows/codeql.yml)에서 볼 수 있습니다.
+
+**접속하는 곳** — 아래 말고는 없습니다. 사용 통계나 원격 전송 기능도 없습니다.
+| 주소 | 하는 일 |
+|---|---|
+| `chzzk.naver.com`, `api.chzzk.naver.com`, 치지직 영상 서버 | 다시보기 목록 조회, 영상·썸네일 받기 |
+| `nid.naver.com`, `comm-api.game.naver.com` | 네이버 로그인, 로그인 상태 확인 (19+ 영상을 받을 때만) |
+| `googleapis.com` (유튜브 API) | 영상 업로드, 재생목록 추가, 썸네일 적용 |
+| `github.com`, `api.github.com`, `raw.githubusercontent.com`, `codeload.github.com` | 업데이트 확인·받기, 설치 때 다운로더 받기 |
+| `astral.sh` | 설치 때 파이썬 설치 도구(uv)가 없으면 공식 사이트에서 받기 |
+| 사용자가 직접 넣은 디스코드 웹훅 | 알림 (설정에서 넣었을 때만. 기본값은 꺼짐) |
+
+**계정 정보는 내 PC에만 저장됩니다**
+- 유튜브 인증은 **사용자 본인이 만든 구글 API 파일**(client_secret.json)로 합니다. 로그인 토큰은 개발자를 거치지 않고, 개발자는 여러분의 유튜브 계정에 접근할 수 없습니다.
+- 유튜브 토큰, 네이버 로그인 정보, 기록은 모두 설치 폴더의 `data/`에만 있습니다.
+- 요청하는 유튜브 권한은 두 가지입니다. 영상 업로드, 그리고 재생목록 추가에 필요한 유튜브 관리 권한입니다.
+
+**받는 프로그램은 버전이 고정돼 있습니다**
+- 함께 받는 다운로더는 `setup.ps1`에 적힌 특정 커밋만 받습니다.
+- 파이썬 패키지 버전은 `uv.lock`으로 고정돼 있습니다.
+
+**무서워 보일 수 있는 부분**
+| 보이는 것 | 이유 |
+|---|---|
+| `powershell -ExecutionPolicy Bypass` | 윈도우는 기본 설정으로 스크립트(.ps1) 실행을 막아 둡니다. 설치·바로가기 스크립트를 **이번 실행에만** 허용하는 옵션이고, 윈도우 설정을 바꾸지 않습니다. |
+| `irm https://astral.sh/uv/install.ps1 \| iex` | 파이썬 도구 uv의 [공식 설치 명령](https://docs.astral.sh/uv/getting-started/installation/)을 그대로 쓴 것입니다. |
+| 작업 스케줄러 등록 | '자동 실행'을 켰을 때만, 30분마다 새 다시보기를 확인하려고 등록합니다. 프로그램에서 끌 수 있습니다. |
+| 숨겨진 PowerShell 창 | 윈도우 알림(인증 만료 안내)을 띄우거나 자동 실행 상태를 확인할 때 씁니다. |
 
 ## 명령어 (고급)
 ```powershell
