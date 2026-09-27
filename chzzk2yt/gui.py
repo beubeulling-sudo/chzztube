@@ -1335,6 +1335,12 @@ class Main(QMainWindow):
             cfgedit.write_channels(CONFIG, dlg.channels)
             self.reload_cfg()
             self._append(f"채널 {len(dlg.channels)}개 저장됨\n")
+            from .pipeline import purge_removed
+
+            # 설정을 못 읽으면(cfg == {}) 모든 채널이 빠진 것으로 보이므로 정리하지 않는다
+            for name, n in (purge_removed(self.cfg.get("channels", []), self.db) if self.cfg else []):
+                self._append(f"뺀 채널 정리: {name} — 올리지 않은 항목 {n}개를 목록에서 지움\n")
+            self.refresh_table(force=True)
             if dlg.channels:
                 self.start_cli("목록 새로고침", ["scan"])
 

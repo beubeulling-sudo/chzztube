@@ -59,9 +59,24 @@ def _match(title: str, inc: list, exc: list) -> bool:
     return not any(k.lower() in t for k in exc)
 
 
+def purge_removed(channels: list, db: DB) -> list[tuple[str, int]]:
+    """채널 관리에서 뺀 채널의 올리지 않은 항목을 목록에서 지운다 (남겨 두면 계속 처리 대상이 된다).
+    수동 추가(URL)는 channels 표에 기록되지 않으므로 여기서 지워지지 않는다. [(채널 이름, 지운 개수)]"""
+    keep = {ch.get("id") for ch in channels}
+    done = []
+    for rec in db.conn.execute("SELECT channel_id, channel_name FROM channels").fetchall():
+        if rec["channel_id"] not in keep:
+            name = rec["channel_name"] or rec["channel_id"]
+            n = db.purge_channel(rec["channel_id"])
+            log.info("채널 삭제 정리: %s — 올리지 않은 항목 %d개를 목록에서 지움", name, n)
+            done.append((name, n))
+    return done
+
+
 def scan(cfg, db: DB, cookies: dict) -> int:
     types = set(cfg["download"]["video_types"])
     added = 0
+    purge_removed(cfg["channels"], db)
     if not cfg["channels"]:
         log.warning("감시할 채널이 없습니다. 메뉴 '채널 관리'에서 추가하세요.")
     for ch in cfg["channels"]:

@@ -96,6 +96,25 @@ class DB:
                 "UPDATE channels SET channel_name=?, last_scan_at=? WHERE channel_id=?", (name, now(), cid)
             )
 
+    def purge_channel(self, cid) -> int:
+        """채널 관리에서 뺀 채널 정리. 유튜브에 올리지 않은 항목(받아 둔 파일 포함)을 지우고
+        채널 기록도 지워, 다시 추가하면 처음 등록처럼 시작한다. 유튜브에 올린 기록은 중복 업로드를 막으려고 남긴다."""
+        rows = self.conn.execute(
+            "SELECT video_no, files FROM videos WHERE channel_id=? AND status IN ('NEW','OUT','SKIPPED','FAILED','DOWNLOADED')"
+            " AND (youtube_ids IS NULL OR youtube_ids IN ('', '[]'))", (cid,)).fetchall()
+        for r in rows:
+            for f in jload(r["files"], []) or []:
+                try:
+                    Path(f).unlink(missing_ok=True)
+                except OSError:
+                    pass  # 다른 작업이 쓰는 중이면 파일은 남긴다
+            self.conn.execute("DELETE FROM videos WHERE video_no=?", (r["video_no"],))
+        busy = self.conn.execute("SELECT 1 FROM videos WHERE channel_id=? AND status IN ('DOWNLOADING','UPLOADING')",
+                                 (cid,)).fetchone()
+        if not busy:  # 진행 중인 항목이 있으면 채널 기록을 남겨 다음 스캔 때 다시 정리한다
+            self.conn.execute("DELETE FROM channels WHERE channel_id=?", (cid,))
+        return len(rows)
+
     # ── videos ───────────────────────────────────────
     def get(self, video_no):
         return self.conn.execute("SELECT * FROM videos WHERE video_no=?", (video_no,)).fetchone()
