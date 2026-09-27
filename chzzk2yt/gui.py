@@ -721,6 +721,21 @@ class Main(QMainWindow):
             cards.addWidget(c, 0, i)
         root.addLayout(cards)
 
+        # 깃허브 주소 (업데이트 버튼 위, 작게)
+        from .updater import DEFAULT_REPO as repo
+
+        gh = QLabel(f'<a href="https://github.com/{repo}" style="color:#8a8f98; text-decoration:none;">'
+                    f'github.com/{repo}</a>')
+        gh.setOpenExternalLinks(True)
+        gh.setToolTip("깃허브 저장소 열기 (새 버전·사용설명서)")
+        gh.setStyleSheet("font-size: 11px;")
+        ghrow = QHBoxLayout()
+        ghrow.setContentsMargins(0, 0, 2, 0)
+        ghrow.addStretch(1)
+        ghrow.addWidget(gh)
+        root.addLayout(ghrow)
+        root.addSpacing(-8)  # 버튼 줄에 붙여 둔다
+
         # 버튼
         bar = QHBoxLayout()
         bar.setSpacing(6)
