@@ -149,7 +149,7 @@ def privacy_of(cfg_raw: dict, r) -> tuple[str, str]:
 def _playlist(cfg, r) -> str:
     for ch in cfg["channels"]:
         if ch["id"] == r["channel_id"] and ch.get("playlist_id"):
-            return ch["playlist_id"]
+            return "" if ch["playlist_id"] == "none" else ch["playlist_id"]  # "none" = 이 채널은 재생목록에 넣지 않음
     return cfg["upload"]["playlist_id"]
 
 

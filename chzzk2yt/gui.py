@@ -43,6 +43,7 @@ STATUS_BG = {  # 목록 칸 배경색 (상태별)
     "YT_DELETED": "#fff1e5", "YT_SHORT": "#ffebe9",
 }
 BG_OK, BG_WARN = "#dafbe1", "#fff1e5"
+NO_PLAYLIST = "none"  # 채널별 재생목록에서 '넣지 않음' (기본 재생목록도 쓰지 않음)
 PRIV_KO = {"public": "공개", "unlisted": "일부 공개", "private": "비공개"}
 PRIV_COLOR = {"public": "#1a7f37", "unlisted": "#9a6700", "private": "#57606a"}
 
@@ -257,6 +258,8 @@ class ChannelDialog(QDialog):
         self._refresh()
 
     def _pl_name(self, pid):
+        if pid == NO_PLAYLIST:
+            return "넣지 않음"
         return self.pl_titles.get(pid, pid) if pid else "없음"
 
     def _refresh(self):
@@ -300,7 +303,10 @@ class ChannelDialog(QDialog):
         if items is None:
             return
         c = self.channels[i]
-        dlg = PlaylistDialog(self, items, c.get("playlist_id", ""), "top", first_label="기본 재생목록 사용 (설정의 재생목록)",
+        dflt = self._pl_name(self.default_pl) if self.default_pl else "없음 — 재생목록에 넣지 않음"
+        dlg = PlaylistDialog(self, items, c.get("playlist_id", ""), "top",
+                             first_label=f"기본 재생목록 따르기 (지금: {dflt})",
+                             extra=[(NO_PLAYLIST, "재생목록에 넣지 않음 (이 채널만)")],
                              show_position=False, title=f"{c.get('name') or '채널'} 재생목록")
         if dlg.exec():
             c["playlist_id"] = dlg.value()[0]
@@ -492,6 +498,8 @@ class SetupGuide(QDialog):
         ]
 
     def _pl(self, pid):
+        if pid == NO_PLAYLIST:
+            return "넣지 않음"
         return (self.m._pl_titles.get(pid, pid) if pid else "없음")
 
     def refresh(self):
@@ -527,15 +535,17 @@ class SetupGuide(QDialog):
 
 class PlaylistDialog(QDialog):
     def __init__(self, parent, items, current, position, first_label="넣지 않음", show_position=True,
-                 title="재생목록 선택"):
+                 title="재생목록 선택", extra=()):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.resize(460, 380)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel("업로드한 영상을 넣을 재생목록" + ("" if not show_position else " (기본: 채널별 지정이 없을 때)")))
         self.list = QListWidget()
-        self.ids = [""] + [i for i, _ in items]
+        self.ids = [""] + [i for i, _ in extra] + [i for i, _ in items]
         self.list.addItem(first_label)
+        for _, t in extra:
+            self.list.addItem(t)
         for _, t in items:
             self.list.addItem(t)
         self.list.setCurrentRow(self.ids.index(current) if current in self.ids else 0)
@@ -1047,7 +1057,7 @@ class Main(QMainWindow):
         up = self.cfg.get("upload", {})
         for c in self.cfg.get("channels", []):
             if c.get("id") == cid and c.get("playlist_id"):
-                return c["playlist_id"], False
+                return ("" if c["playlist_id"] == NO_PLAYLIST else c["playlist_id"]), False
         return up.get("playlist_id", ""), True
 
     def _sync_tabs(self, rows):
