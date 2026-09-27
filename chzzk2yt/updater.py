@@ -51,6 +51,51 @@ def check(cfg=None) -> tuple[str, str, bool]:
     return __version__, rv, _ver(rv) > _ver(__version__)
 
 
+KINDS = ("추가", "개선", "수정")  # VERSION.txt 항목 분류 (보여 주는 순서)
+
+
+def parse_notes(text: str) -> list[tuple[str, str, list[tuple[str, str]]]]:
+    """VERSION.txt → [(버전, 날짜, [(분류, 내용), ...]), ...]"""
+    out = []
+    for line in text.splitlines():
+        s = line.strip()
+        m = re.match(r"##\s*v?(\d[\d.]*)\s*(?:\((.*?)\))?", s)
+        if m:
+            out.append((m.group(1), m.group(2) or "", []))
+        elif out and s.startswith("-"):
+            k = re.match(r"\[(.+?)\]\s*(.*)", s[1:].strip())
+            out[-1][2].append((k.group(1), k.group(2)) if k else ("", s[1:].strip()))
+    return out
+
+
+def format_notes(entries, max_lines: int = 20) -> str:
+    """현재보다 새로운 버전들의 변경 내역을 사람이 읽을 글로 만든다 (최신 버전부터)."""
+    lines = []
+    for v, d, items in sorted(entries, key=lambda e: _ver(e[0]), reverse=True):
+        lines.append(f"■ v{v}" + (f" ({d})" if d else ""))
+        order = {k: i for i, k in enumerate(KINDS)}
+        for kind, text in sorted(items, key=lambda it: order.get(it[0], len(KINDS))):
+            lines.append(f"  [{kind}] {text}" if kind else f"  · {text}")
+    if len(lines) > max_lines:
+        lines = lines[:max_lines - 1] + ["  … (나머지는 VERSION.txt 참고)"]
+    return "\n".join(lines)
+
+
+def whats_new(cur: str, new: str, cfg=None, timeout=15) -> str:
+    """깃허브의 VERSION.txt에서 cur 초과 ~ new 이하 버전의 변경 내역. 못 가져오면 빈 문자열."""
+    try:
+        import requests
+
+        repo, br = _src(cfg)
+        r = requests.get(f"https://raw.githubusercontent.com/{repo}/{br}/VERSION.txt",
+                         timeout=timeout, headers={"Cache-Control": "no-cache"})
+        r.raise_for_status()
+        text = r.content.decode("utf-8-sig", errors="replace")
+    except Exception:  # noqa: BLE001 — 변경 내역은 없어도 업데이트는 할 수 있다
+        return ""
+    return format_notes([e for e in parse_notes(text) if _ver(cur) < _ver(e[0]) <= _ver(new)])
+
+
 def _md5(p: Path) -> str:
     return hashlib.md5(p.read_bytes()).hexdigest() if p.exists() else ""
 
@@ -75,6 +120,9 @@ def apply(root: Path, cfg=None, force: bool = False, log=print) -> bool:
         log(f"이미 최신 버전입니다 (v{cur}).")
         return False
     repo, br = _src(cfg)
+    notes = whats_new(cur, new, cfg) if need else ""
+    if notes:
+        log("이번 업데이트 내용:\n" + notes)
     log(f"새 버전 v{new} 받는 중… (현재 v{cur}, github.com/{repo})")
     r = requests.get(f"https://codeload.github.com/{repo}/zip/refs/heads/{br}", timeout=120)
     r.raise_for_status()

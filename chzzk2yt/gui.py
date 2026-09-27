@@ -153,7 +153,8 @@ def _update_check():
         cfg = config_mod.load(CONFIG)
     except BaseException:  # noqa: BLE001
         cfg = None
-    return updater.check(cfg)
+    cur, new, need = updater.check(cfg)
+    return cur, new, need, (updater.whats_new(cur, new, cfg) if need else "")
 
 
 def check_task():
@@ -946,6 +947,9 @@ class Main(QMainWindow):
         elif key == "update":
             if isinstance(res, tuple) and res[2]:
                 self._new_ver = res[1]
+                self._new_notes = res[3]
+                if res[3]:
+                    self.b_update.setToolTip(f"새 버전 v{res[1]} 내용\n\n{res[3]}")
                 self.b_update.setText(f"업데이트 (v{res[1]}) ●")
                 self.b_update.setObjectName("primary")
                 self.b_update.style().unpolish(self.b_update)
@@ -1570,6 +1574,9 @@ class Main(QMainWindow):
         new = getattr(self, "_new_ver", None)
         msg = (f"현재 v{__version__} → 새 버전 v{new}으로 업데이트할까요?" if new else
                f"현재 v{__version__}. 깃허브에서 최신 버전을 확인하고, 있으면 받을까요?")
+        notes = getattr(self, "_new_notes", "") if new else ""
+        if notes:
+            msg += "\n\n이번 업데이트 내용\n" + notes
         msg += ("\n\n설정·채널·기록·인증(config.toml, data 폴더)은 그대로 유지됩니다. "
                 "바꾸기 전 파일은 data\\backup 에 보관됩니다.\n다운로드·업로드가 진행 중이면 끝난 뒤에 하는 걸 권장합니다.")
         if QMessageBox.question(self, "업데이트", msg) == QMessageBox.Yes:

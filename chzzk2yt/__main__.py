@@ -190,6 +190,9 @@ def main(argv=None):
             if args.check:
                 cur, new, need = updater.check(cfg)
                 print(f"현재 v{cur} / 최신 v{new}" + (" → 업데이트 있음" if need else " (최신)"))
+                notes = updater.whats_new(cur, new, cfg) if need else ""
+                if notes:
+                    print("\n이번 업데이트 내용:\n" + notes)
                 return
             updater.apply(root, cfg, force=args.force)
         except Exception as e:  # noqa: BLE001
