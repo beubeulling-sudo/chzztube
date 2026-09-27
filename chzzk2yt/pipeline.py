@@ -133,6 +133,19 @@ def _fmt(tpl: str, r, part: str = "") -> str:
     ).strip() + part
 
 
+def privacy_of(cfg_raw: dict, r) -> tuple[str, str]:
+    """이 영상이 올라갈 공개 범위와 그 출처 ("영상" | "채널" | "기본").
+    우선순위: 영상별로 정한 값 > 채널별 설정 > 설정의 기본 공개 범위."""
+    from .youtube import PRIVACY
+
+    if r["privacy"] in PRIVACY and r["status"] not in ("UPLOADED", "YT_SHORT", "YT_DELETED"):
+        return r["privacy"], "영상"
+    for ch in cfg_raw.get("channels", []):
+        if ch.get("id") == r["channel_id"] and ch.get("privacy") in PRIVACY:
+            return ch["privacy"], "채널"
+    return cfg_raw.get("upload", {}).get("privacy", "public"), "기본"
+
+
 def _playlist(cfg, r) -> str:
     for ch in cfg["channels"]:
         if ch["id"] == r["channel_id"] and ch.get("playlist_id"):
@@ -239,6 +252,7 @@ def do_upload(cfg, db: DB, r, svc, notify):
     db.update(no, status="UPLOADING")
     report.write(db, cfg.data_dir)
     tags = [t for t in [r["channel_name"], r["category"], "치지직"] if t]
+    privacy = privacy_of(cfg.raw, r)[0]
     try:
         for i, f in enumerate(files):
             if i < len(ids):
@@ -246,7 +260,7 @@ def do_upload(cfg, db: DB, r, svc, notify):
             title = _titles(cfg, r, len(files))[i]
             skey = f"upload_session:{no}:{i}"
             vid = youtube.upload(svc, f, title, _fmt(u["description_template"], r), tags,
-                                 u["category_id"], u["privacy"],
+                                 u["category_id"], privacy,
                                  session=(lambda k=skey: db.get_kv(k), lambda v, k=skey: db.set_kv(k, v)),
                                  chunk_mb=int(u.get("chunk_mb", 256)))
             ids.append(vid)
@@ -269,7 +283,7 @@ def do_upload(cfg, db: DB, r, svc, notify):
                     log.warning("재생목록 추가 실패: %r", e)
             if u["set_thumbnail"]:
                 apply_thumbnail(cfg, db, no, vid, youtube.fresh(svc), notify)
-        db.update(no, status="UPLOADED", uploaded_at=now(), error=None)
+        db.update(no, status="UPLOADED", uploaded_at=now(), error=None, privacy=privacy)
         if u["set_thumbnail"] and not thumb_pause_left(db):
             try:  # 앞서 제한 때문에 빠진 썸네일이 있으면 하나씩 따라잡기
                 ok, total = apply_missing_thumbnails(cfg, db, svc, limit=1)
@@ -358,7 +372,11 @@ def sync_youtube(cfg, db: DB, svc) -> int:
             log.info("유튜브에서 삭제된 영상: %s (%s)", r["title"], ", ".join(ids))
             continue
         states = [alive.get(i) for i in ids]
-        bad = [i for i, s in zip(ids, states) if s and s[0] in ("failed", "rejected")]
+        # 유튜브 스튜디오에서 바꾼 공개 범위도 목록에 반영 (파트가 여럿이면 첫 파트 기준)
+        pv = next((s[2] for s in states if s and s[2]), "")
+        if pv and pv != r["privacy"]:
+            db.update(r["video_no"], privacy=pv)
+        bad =[i for i, s in zip(ids, states) if s and s[0] in ("failed", "rejected")]
         if bad:
             db.update(r["video_no"], status="YT_SHORT",
                       error="유튜브 처리 실패(" + ", ".join(bad) + ") — 유튜브에서 지우고 '다시 업로드'")

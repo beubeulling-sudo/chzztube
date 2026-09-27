@@ -146,6 +146,10 @@ def main(argv=None):
     t1.add_argument("targets", nargs="+")
     td = sub.add_parser("thumb-done", help="썸네일이 이미 적용된 것으로 표시 (다시 올리지 않음)")
     td.add_argument("targets", nargs="+")
+    pv = sub.add_parser("privacy", help="공개 범위 바꾸기 (올라간 영상은 유튜브에서 바로, 대기 영상은 올라갈 때 적용)")
+    pv.add_argument("value", choices=["public", "unlisted", "private", "default"],
+                    help="default = 채널/기본 설정 따르기")
+    pv.add_argument("targets", nargs="+")
     th = sub.add_parser("thumbs", help="업로드된 영상 중 썸네일 없는 것에 일괄 적용")
     th.add_argument("--redo", action="store_true", help="이미 붙인 것도 전부 다시 (고화질로 교체)")
     sub.add_parser("scan", help="채널 목록만 새로고침 (다운로드·업로드 없음)")
@@ -263,6 +267,37 @@ def main(argv=None):
                     break
             if stop:
                 break
+        report.write(db, cfg.data_dir)
+    elif args.cmd == "privacy":
+        names = {"public": "공개", "unlisted": "일부 공개", "private": "비공개"}
+        svc = None
+        for t in args.targets:
+            row = db.get(chzzk.parse_video_no(t))
+            if not row:
+                print(f"[건너뜀] {t} — 목록에 없는 영상")
+                continue
+            ids = jload(row["youtube_ids"])
+            if row["status"] in ("UPLOADED", "YT_SHORT") and ids:
+                want = args.value
+                if want == "default":  # 올라간 영상은 '따르기' = 지금의 채널/기본 설정값으로 바꾸기
+                    want = pipeline.privacy_of(cfg.raw, {**dict(row), "privacy": None, "status": "NEW"})[0]
+                try:
+                    svc = svc or youtube.service(cfg.data_dir)
+                    for vid in ids:
+                        youtube.set_privacy(svc, vid, want)
+                except Exception as e:  # noqa: BLE001
+                    print(f"실패: {row['title']} — {e}")
+                    if isinstance(e, (youtube.QuotaError, youtube.AuthError)) or "quota" in str(e).lower():
+                        print("유튜브 한도 초과 또는 인증 문제로 나머지는 중단합니다.")
+                        break
+                    continue
+                db.update(row["video_no"], privacy=want)
+                print(f"유튜브 공개 범위 변경 → {names[want]}: {row['title']}")
+            else:
+                db.update(row["video_no"], privacy=None if args.value == "default" else args.value)
+                now_pv, src = pipeline.privacy_of(cfg.raw, db.get(row["video_no"]))
+                print(f"올라갈 때 공개 범위 → {names.get(now_pv, now_pv)}"
+                      f"{' (채널/기본 설정 따름)' if src != '영상' else ''}: {row['title']}")
         report.write(db, cfg.data_dir)
     elif args.cmd == "thumb-done":
         for t in args.targets:

@@ -95,6 +95,7 @@ def load(path: str | Path) -> Config:
         ch.setdefault("include_keywords", [])
         ch.setdefault("exclude_keywords", [])
         ch.setdefault("playlist_id", "")
+        ch.setdefault("privacy", "")  # 비우면 [upload] privacy 따름
         cid = str(ch.get("id", ""))
         if len(cid) != 32 or set(cid) == {"0"}:
             print(f"[경고] 채널 ID가 비어 있거나 잘못돼 건너뜁니다: {cid!r} — 메뉴 '채널 관리'에서 추가하세요.")

@@ -43,6 +43,8 @@ STATUS_BG = {  # 목록 칸 배경색 (상태별)
     "YT_DELETED": "#fff1e5", "YT_SHORT": "#ffebe9",
 }
 BG_OK, BG_WARN = "#dafbe1", "#fff1e5"
+PRIV_KO = {"public": "공개", "unlisted": "일부 공개", "private": "비공개"}
+PRIV_COLOR = {"public": "#1a7f37", "unlisted": "#9a6700", "private": "#57606a"}
 
 
 def app_icon() -> QIcon:
@@ -198,12 +200,13 @@ class Card(QFrame):
 
 # ── 채널 관리 ───────────────────────────────────────────────
 class ChannelDialog(QDialog):
-    def __init__(self, parent, channels, default_pl="", fetch_playlists=None, pl_titles=None):
+    def __init__(self, parent, channels, default_pl="", fetch_playlists=None, pl_titles=None, default_privacy="public"):
         super().__init__(parent)
         self.setWindowTitle("채널 관리")
-        self.resize(640, 440)
+        self.resize(780, 440)
         self.channels = [dict(c) for c in channels]
         self.default_pl = default_pl
+        self.default_privacy = default_privacy
         self.fetch_playlists = fetch_playlists
         self.pl_titles = pl_titles if pl_titles is not None else {}
         for c in self.channels:  # 이름 없는 채널은 조회해서 채움
@@ -233,9 +236,13 @@ class ChannelDialog(QDialog):
         pl = QPushButton("선택 채널 재생목록 지정…")
         pl.setToolTip("채널마다 다른 재생목록에 넣을 때. 지정 안 하면 기본 재생목록(설정)에 들어갑니다.")
         pl.clicked.connect(self._set_playlist)
+        pv = QPushButton("선택 채널 공개 범위…")
+        pv.setToolTip("채널마다 공개/일부 공개/비공개를 다르게 올릴 때. 지정 안 하면 설정의 기본 공개 범위를 따릅니다.")
+        pv.clicked.connect(self._set_privacy)
         rm = QPushButton("선택 채널 삭제")
         rm.clicked.connect(self._remove)
         row2.addWidget(pl)
+        row2.addWidget(pv)
         row2.addWidget(rm)
         row2.addStretch(1)
         lay.addLayout(row2)
@@ -257,7 +264,30 @@ class ChannelDialog(QDialog):
         for c in self.channels:
             pid = c.get("playlist_id", "")
             pl = f"재생목록: {self._pl_name(pid)}" if pid else f"재생목록: 기본({self._pl_name(self.default_pl)})"
-            self.list.addItem(f'{c.get("name") or "(이름 없음)"}  ·  start={c.get("start", "new")}  ·  {pl}\n    {c["id"]}')
+            pv = c.get("privacy", "")
+            pv = (f"공개 범위: {PRIV_KO[pv]}" if pv in PRIV_KO
+                  else f"공개 범위: 기본({PRIV_KO.get(self.default_privacy, self.default_privacy)})")
+            self.list.addItem(f'{c.get("name") or "(이름 없음)"}  ·  start={c.get("start", "new")}  ·  {pl}  ·  {pv}'
+                              f'\n    {c["id"]}')
+
+    def _set_privacy(self):
+        i = self.list.currentRow()
+        if i < 0:
+            QMessageBox.information(self, "공개 범위", "먼저 목록에서 채널을 선택하세요.")
+            return
+        c = self.channels[i]
+        keys = ["", "public", "unlisted", "private"]
+        labels = [f"기본 공개 범위 따르기 (지금: {PRIV_KO.get(self.default_privacy, self.default_privacy)})",
+                  "공개", "일부 공개 (링크가 있는 사람만)", "비공개 (나만)"]
+        cur = keys.index(c.get("privacy", "")) if c.get("privacy", "") in keys else 0
+        choice, ok = QInputDialog.getItem(self, f"{c.get('name') or '채널'} 공개 범위",
+                                          "이 채널 영상을 어떤 공개 범위로 올릴까요?\n"
+                                          "(이미 올라간 영상은 바뀌지 않습니다. 목록에서 우클릭 → 공개 범위로 바꿀 수 있어요)",
+                                          labels, cur, False)
+        if ok:
+            c["privacy"] = keys[labels.index(choice)]
+            self._refresh()
+            self.list.setCurrentRow(i)
 
     def _set_playlist(self):
         i = self.list.currentRow()
@@ -292,7 +322,7 @@ class ChannelDialog(QDialog):
             QMessageBox.warning(self, "채널 추가", "시작은 new / all / YYYY-MM-DD 중 하나여야 합니다.")
             return
         self.channels.append({"id": cid, "name": info.get("channelName", ""), "start": st,
-                              "include_keywords": [], "exclude_keywords": [], "playlist_id": ""})
+                              "include_keywords": [], "exclude_keywords": [], "playlist_id": "", "privacy": ""})
         self.url.clear()
         self._refresh()
 
@@ -310,7 +340,7 @@ class SettingsDialog(QDialog):
         ("download", "min_age_minutes", "게시 후 대기(분)", "int", (0, 1440)),
         ("download", "max_attempts", "재시도 횟수", "int", (1, 10)),
         ("upload", "enabled", "유튜브 업로드", "bool", None),
-        ("upload", "privacy", "공개 범위", "choice", ["private", "unlisted", "public"]),
+        ("upload", "privacy", "기본 공개 범위 (채널별 설정이 우선)", "choice", ["private", "unlisted", "public"]),
         ("upload", "delete_after_upload", "업로드 후 로컬 삭제", "bool", None),
         ("upload", "set_thumbnail", "치지직 썸네일 적용", "bool", None),
         ("upload", "oauth_testing", "구글 앱 테스트 중 (7일마다 재인증)", "bool", None),
@@ -677,7 +707,7 @@ class TitleBar(QWidget):
 
 # ── 메인 창 ─────────────────────────────────────────────────
 class Main(QMainWindow):
-    COLS = ["썸네일 · 번호", "채널", "제목", "방송일", "길이", "상태", "화질", "유튜브 업로드", "썸네일", "메모"]
+    COLS = ["썸네일 · 번호", "채널", "제목", "방송일", "길이", "상태", "화질", "유튜브 업로드", "공개", "썸네일", "메모"]
 
     def __init__(self):
         super().__init__()
@@ -836,8 +866,8 @@ class Main(QMainWindow):
         hh.setSectionResizeMode(QHeaderView.ResizeToContents)
         hh.setMinimumSectionSize(40)
         hh.setSectionResizeMode(2, QHeaderView.Stretch)
-        hh.setSectionResizeMode(9, QHeaderView.Interactive)
-        self.table.setColumnWidth(9, 240)
+        hh.setSectionResizeMode(10, QHeaderView.Interactive)
+        self.table.setColumnWidth(10, 240)
         split.addWidget(self.table)
 
         self.tabs = QTabWidget()
@@ -1008,6 +1038,11 @@ class Main(QMainWindow):
         self.refresh_log()
 
     # 표
+    def _privacy_of_channel(self, cid):
+        from .pipeline import privacy_of
+
+        return privacy_of(self.cfg, {"privacy": None, "status": "NEW", "channel_id": cid})
+
     def _playlist_of(self, cid):
         up = self.cfg.get("upload", {})
         for c in self.cfg.get("channels", []):
@@ -1051,7 +1086,9 @@ class Main(QMainWindow):
         if sel:
             pid, default = self._playlist_of(sel)
             pl = self._pl_titles.get(pid, pid) if pid else "없음"
-            self.pl_label.setText(f"▶ 올라가는 재생목록: {pl}" + (" (기본)" if default else ""))
+            pv, pv_src = self._privacy_of_channel(sel)
+            self.pl_label.setText(f"▶ 올라가는 재생목록: {pl}" + (" (기본)" if default else "")
+                                  + f"  ·  공개 범위: {PRIV_KO.get(pv, pv)}" + (" (기본)" if pv_src == "기본" else ""))
         else:
             self.pl_label.setText("")
         self.pl_label.setVisible(self.chtabs.isVisible())
@@ -1124,11 +1161,18 @@ class Main(QMainWindow):
                 th = f"✗ 미적용 ({tn}/{len(ids)})" if len(ids) > 1 else "✗ 미적용"
                 th += f" · 제한 대기 {-(-pause // 60)}분" if pause else " · 자동 재시도 대기"
                 th_c = "#bc4c00"
+            from .pipeline import privacy_of
+
+            pv, pv_src = privacy_of(self.cfg, r)
+            if ids:
+                pv_txt = PRIV_KO.get(r["privacy"] or "", "확인 전")
+            else:
+                pv_txt = f"예정: {PRIV_KO.get(pv, pv)}" + (" (이 영상만)" if pv_src == "영상" else "")
             if r["status"] == "OUT" and not memo:
                 memo = "채널 등록 전 방송 — 올리려면 관리 → 과거 방송 가져오기"
             vals = [str(r["video_no"]), r["channel_name"] or "", r["title"] or "", (r["publish_date"] or "")[:16],
                     f"{d // 3600}:{d % 3600 // 60:02d}", LABEL.get(r["status"], r["status"]),
-                    f"{r['resolution']}p" if r["resolution"] else "", yt, th,
+                    f"{r['resolution']}p" if r["resolution"] else "", yt, pv_txt, th,
                     ("19+ " if r["adult"] else "") + memo]
             for j, v in enumerate(vals):
                 it = QTableWidgetItem(v)
@@ -1144,6 +1188,9 @@ class Main(QMainWindow):
                         it.setIcon(ic)
                         it.setToolTip(f'<img src="{Path(r["thumb_file"]).as_uri()}" width="480">')
                 if j == 8:
+                    it.setForeground(QColor(PRIV_COLOR.get(r["privacy"], "#8c959f") if ids else "#8c959f"))
+                    it.setToolTip("우클릭 → 공개 범위 바꾸기")
+                if j == 9:
                     it.setForeground(QColor(th_c))
                     if th.startswith("✔"):
                         it.setBackground(QColor(BG_OK))
@@ -1152,7 +1199,7 @@ class Main(QMainWindow):
                     if th.startswith("기존"):
                         it.setToolTip("이 프로그램이 올리지 않고 유튜브에 이미 있던 영상이라 썸네일 적용 여부를 알 수 없습니다.\n"
                                       "썸네일이 없으면 우클릭 → 썸네일 적용, 이미 있으면 우클릭 → 썸네일 적용됨으로 표시")
-                if j == 9 and r["error"]:
+                if j == 10 and r["error"]:
                     it.setToolTip(r["error"])
                 if j == 7:
                     it.setForeground(QColor("#1a7f37" if ids else "#8c959f"))
@@ -1188,6 +1235,10 @@ class Main(QMainWindow):
         m.addAction("썸네일 적용됨으로 표시 (이미 붙어 있을 때)", lambda: self.start_cli("썸네일 표시", ["thumb-done", *map(str, nos)]))
         m.addAction("다시 업로드 (유튜브 쪽이 잘못됐을 때)", lambda: self.start_cli("다시 업로드", ["reupload", *map(str, nos)]))
         m.addAction("제외", lambda: self._skip(nos))
+        pm = m.addMenu("공개 범위 바꾸기")
+        for key, label in (("public", "공개"), ("unlisted", "일부 공개"), ("private", "비공개"),
+                           ("default", "채널/기본 설정 따르기")):
+            pm.addAction(label, lambda k=key: self._set_privacy(nos, k))
         m.addSeparator()
         m.addAction("치지직에서 열기", lambda: [_open(chzzk.video_url(n)) for n in nos])
         r = self.db.get(nos[0])
@@ -1205,6 +1256,14 @@ class Main(QMainWindow):
 
     def _retry(self, nos):
         self.start_cli("재시도", ["retry", *map(str, nos)])
+
+    def _set_privacy(self, nos, key):
+        up = [n for n in nos if jload(self.db.get(n)["youtube_ids"])]
+        if up and QMessageBox.question(
+                self, "공개 범위", f"이미 올라간 {len(up)}개 영상은 유튜브에서 바로 공개 범위가 바뀝니다. 진행할까요?\n"
+                "(아직 안 올라간 영상은 올라갈 때 이 공개 범위가 적용됩니다)") != QMessageBox.Yes:
+            return
+        self.start_cli("공개 범위", ["privacy", key, *map(str, nos)])
 
     def _skip(self, nos):
         if QMessageBox.question(self, "제외", f"{len(nos)}개 항목을 처리 대상에서 제외할까요?") == QMessageBox.Yes:
@@ -1329,7 +1388,7 @@ class Main(QMainWindow):
         chs = [c for c in self.cfg.get("channels", [])
                if len(str(c.get("id", ""))) == 32 and set(str(c["id"])) != {"0"}]
         dlg = ChannelDialog(self, chs, self.cfg.get("upload", {}).get("playlist_id", ""), self._fetch_playlists,
-                            self._pl_titles)
+                            self._pl_titles, self.cfg.get("upload", {}).get("privacy", "public"))
         if dlg.exec():
             cfgedit.write_channels(CONFIG, dlg.channels)
             self.reload_cfg()

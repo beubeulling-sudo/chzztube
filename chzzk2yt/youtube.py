@@ -407,8 +407,28 @@ def playlist_items(svc, playlist_id: str) -> list[str]:
             return out
 
 
-def video_durations(svc, ids: list[str]) -> dict[str, tuple[str, int]]:
-    """{영상ID: (uploadStatus, 길이초)}"""
+PRIVACY = ("public", "unlisted", "private")
+
+
+def set_privacy(svc, video_id: str, privacy: str) -> None:
+    """공개 범위만 바꾼다. videos.update 는 보내지 않은 status 항목을 기본값으로 되돌리므로
+    현재 값을 읽어 privacyStatus 만 바꿔 보낸다."""
+    if privacy not in PRIVACY:
+        raise ValueError(privacy)
+    items = svc.videos().list(part="status", id=video_id).execute().get("items", [])
+    if not items:
+        raise RuntimeError("유튜브에서 영상을 찾을 수 없습니다 (삭제됨?)")
+    st = {k: v for k, v in items[0]["status"].items()
+          if k in ("embeddable", "license", "publicStatsViewable", "selfDeclaredMadeForKids",
+                   "containsSyntheticMedia", "publishAt")}
+    if privacy != "private":
+        st.pop("publishAt", None)  # 예약 공개는 비공개일 때만 허용됨
+    st["privacyStatus"] = privacy
+    svc.videos().update(part="status", body={"id": video_id, "status": st}).execute()
+
+
+def video_durations(svc, ids: list[str]) -> dict[str, tuple[str, int, str]]:
+    """{영상ID: (uploadStatus, 길이초, privacyStatus)}"""
     import re as _re
 
     out = {}
@@ -418,7 +438,8 @@ def video_durations(svc, ids: list[str]) -> dict[str, tuple[str, int]]:
             m = _re.match(r"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?",
                           it["contentDetails"].get("duration", "P0D"))
             d, h, mi, s = [int(x or 0) for x in m.groups()] if m else (0, 0, 0, 0)
-            out[it["id"]] = (it["status"].get("uploadStatus", ""), d * 86400 + h * 3600 + mi * 60 + s)
+            out[it["id"]] = (it["status"].get("uploadStatus", ""), d * 86400 + h * 3600 + mi * 60 + s,
+                             it["status"].get("privacyStatus", ""))
     return out
 
 

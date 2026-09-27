@@ -72,6 +72,8 @@ class DB:
             self.conn.execute("ALTER TABLE videos ADD COLUMN yt_verified INTEGER")
         if "thumb_unknown" not in cols:  # 이 프로그램이 올리지 않은(유튜브에 이미 있던) 영상 → 썸네일 상태 모름
             self.conn.execute("ALTER TABLE videos ADD COLUMN thumb_unknown INTEGER")
+        if "privacy" not in cols:  # 공개 범위. 올라간 영상 = 유튜브의 실제 값, 대기 영상 = 이 영상만 따로 정한 값(없으면 채널/기본)
+            self.conn.execute("ALTER TABLE videos ADD COLUMN privacy TEXT")
 
     # ── kv ────────────────────────────────────────────
     def get_kv(self, k, default=None):

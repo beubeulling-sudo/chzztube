@@ -61,3 +61,4 @@ branch = "main"
 # include_keywords = []   # 하나라도 제목에 포함돼야 받음 (비우면 전부)
 # exclude_keywords = []   # 하나라도 포함되면 제외
 # playlist_id = ""        # 이 채널 전용 유튜브 재생목록
+# privacy = ""            # 이 채널 공개 범위: public | unlisted | private (비우면 위 [upload] privacy)

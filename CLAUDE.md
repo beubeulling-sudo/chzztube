@@ -47,6 +47,10 @@
 - **재생목록**
   - 채널별 `playlist_id`가 기본 재생목록보다 우선한다.
   - 위치 지정이 `manualSortRequired`(400)로 거부돼도 영상은 이미 들어가 있으므로 성공으로 본다. 그 재생목록은 `playlist_autosort:<id>`에 24시간 기록해 위치 지정을 건너뛴다.
+- **공개 범위** (`pipeline.privacy_of`)
+  - 우선순위: 영상별 값(`videos.privacy`, 올라가기 전) > 채널별 `privacy` > `[upload] privacy`.
+  - `videos.privacy`는 올라간 영상이면 유튜브의 실제 값(`sync_youtube`가 갱신), 아니면 그 영상만 따로 정한 값이다.
+  - `youtube.set_privacy`는 현재 status를 읽어 privacyStatus만 바꿔 보낸다. `videos.update`는 빠진 항목을 기본값으로 되돌리기 때문이다.
 - **업로드 한도**
   - 일일 업로드 개수 한도는 400(`uploadLimitExceeded`)으로 온다. 400/403/429 모두 쿼터로 판정한다.
   - 태평양 시간 자정까지 `quota_block`을 건다.

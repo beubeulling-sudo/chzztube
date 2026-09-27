@@ -54,6 +54,7 @@ CH_HEADER = """# ── 감시할 채널 (여러 개 가능) ──────�
 # start: "new"   = 처음 등록한 시점 이후 올라오는 것만 (기본)
 #        "all"   = 과거 다시보기 전부
 #        "2026-09-01" = 이 날짜 이후 게시분
+# privacy: 이 채널 공개 범위 public | unlisted | private (비우면 [upload] privacy)
 """
 
 
@@ -74,5 +75,6 @@ def write_channels(path: Path, channels: list[dict]) -> None:
         out.append(f"start = {_toml_value(ch.get('start', 'new'))}\n")
         out.append(f"include_keywords = {_toml_value(ch.get('include_keywords', []))}\n")
         out.append(f"exclude_keywords = {_toml_value(ch.get('exclude_keywords', []))}\n")
-        out.append(f"playlist_id = {_toml_value(ch.get('playlist_id', ''))}\n\n")
+        out.append(f"playlist_id = {_toml_value(ch.get('playlist_id', ''))}\n")
+        out.append(f"privacy = {_toml_value(ch.get('privacy', ''))}\n\n")
     path.write_text(head + "".join(out), encoding="utf-8")
