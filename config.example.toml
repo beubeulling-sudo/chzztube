@@ -1,0 +1,66 @@
+# config.toml 로 복사해서 사용하세요.  (copy config.example.toml config.toml)
+# 상대 경로는 이 파일이 있는 폴더 기준입니다.
+
+[paths]
+download_dir    = "downloads"                       # 영상 저장 폴더 (채널별 하위 폴더 생성)
+data_dir        = "data"                            # DB·토큰·로그·상태표
+downloader_repo = "vendor/chzzk-vod-downloader-v2"  # setup.ps1이 여기 클론함
+
+[download]
+resolution        = 1080       # 선호 해상도. 없으면 그 이하 중 최고 화질
+min_age_minutes   = 30         # 다시보기 게시 후 이 시간이 지나야 받음 (인코딩 완료 대기)
+max_attempts      = 3          # 단계별 재시도 횟수. 초과 시 FAILED
+timeout_hours     = 12         # 한 영상 다운로드 제한 시간
+video_types       = ["REPLAY"] # REPLAY=생방송 다시보기, UPLOAD=업로드 영상
+engine            = "direct"   # direct = 조각을 직접 받아 하나하나 검사(권장) | upstream = 원래 다운로더
+max_threads       = 16         # 동시 다운로드 연결 수 (높이면 치지직이 연결을 끊는 일이 잦아짐)
+strict_order      = true       # 방송일 순서 엄수: 앞 영상이 실패하면 뒤 영상은 기다림 (유튜브 업로드 순서 보장)
+
+[upload]
+enabled             = true
+privacy             = "public"    # public(공개) | unlisted(일부 공개) | private(비공개)
+category_id         = "20"        # 20=게임, 22=인물/블로그, 24=엔터테인먼트
+delete_after_upload = true        # 업로드 성공 시 로컬 파일 삭제
+playlist_id         = ""          # 비워두면 재생목록 추가 안 함 (채널별 설정이 우선)
+playlist_position   = "bottom"    # top = 맨 위에 추가(최신이 위), bottom = 맨 아래에 추가
+oauth_testing       = true        # 구글 앱이 '테스트 중'이면 true (인증 7일마다 만료 → 만료일 표시·하루 전 알림). 게시했으면 false
+set_thumbnail       = true        # 치지직 썸네일 적용 (유튜브 채널 전화 인증 필요: youtube.com/verify)
+max_part_hours      = 11.5        # 유튜브 최대 12시간 → 초과 영상은 이 길이로 분할 업로드
+title_template      = "[{date}] {title}"
+description_template = """
+{channel} 치지직 다시보기
+방송일: {date}
+카테고리: {category}
+원본: {url}
+"""
+
+[cookies]
+# browser : 전용 브라우저 프로필로 네이버 로그인 유지, 실행 때마다 쿠키 자동 갱신 (권장)
+# manual  : 아래 NID_AUT / NID_SES 값을 직접 입력
+# none    : 쿠키 없이 (연령제한·멤버십 영상은 실패)
+mode           = "browser"
+browser_channel = "msedge"   # msedge | chrome | chromium  (msedge는 윈도우 기본 설치라 권장)
+headless       = true        # 갱신이 계속 실패하면 false로 (창이 잠깐 떴다 닫힘)
+NID_AUT = ""
+NID_SES = ""
+
+[update]
+repo   = "beubeulling-sudo/chzztube"   # 업데이트 버튼이 최신 버전을 받아오는 깃허브 저장소
+branch = "main"
+
+[notify]
+discord_webhook = ""   # 업로드 완료/실패/쿠키 만료/쿼터 초과 알림. 비우면 끔
+
+# ── 감시할 채널 (여러 개 가능) ─────────────────────────────
+# id: 채널 URL https://chzzk.naver.com/<여기 32자리> 부분
+# start: "new"   = 처음 등록한 시점 이후 올라오는 것만 (기본)
+#        "all"   = 과거 다시보기 전부
+#        "2026-09-01" = 이 날짜 이후 게시분
+# 메뉴의 '채널 관리' 또는 UI의 '관리 → 채널 관리'로 추가하면 여기에 자동으로 기록됩니다.
+# 직접 쓸 경우 형식:
+# [[channels]]
+# id    = "32자리채널ID"
+# start = "new"
+# include_keywords = []   # 하나라도 제목에 포함돼야 받음 (비우면 전부)
+# exclude_keywords = []   # 하나라도 포함되면 제외
+# playlist_id = ""        # 이 채널 전용 유튜브 재생목록

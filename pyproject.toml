@@ -1,0 +1,23 @@
+[project]
+name = "chzzk2yt"
+version = "0.1.0"
+description = "치지직 다시보기 → 유튜브 비공개 업로드 자동화"
+requires-python = ">=3.13"
+dependencies = [
+    # chzzk-vod-downloader-v2 core 의존성 (PySide6는 헤드리스라 불필요)
+    "requests>=2.32.5",
+    "pycryptodome>=3.20",
+    "imageio-ffmpeg>=0.6.0",
+    "platformdirs>=4.11.4",
+    # 업로드
+    "google-api-python-client>=2.150",
+    "google-auth-oauthlib>=1.2",
+    # 네이버 쿠키 자동 갱신
+    "playwright>=1.48",
+    "tzdata",
+    # 데스크톱 UI
+    "PySide6>=6.8.1",
+]
+
+[tool.uv]
+package = false
