@@ -231,7 +231,7 @@ def _raise_api(r):
 
 def upload(svc, path: Path, title: str, description: str, tags: list[str],
            category_id: str, privacy: str, session=None, chunk_mb: int = 256) -> str:
-    """재개 가능한 업로드. session=(get, set) 을 주면 세션 주소를 저장해 프로그램을 껏다 켜도 이어 올린다."""
+    """재개 가능한 업로드. session=(get, set) 을 주면 세션 주소를 저장해 프로그램을 껐다 켜도 이어 올린다."""
     import time as _t
 
     from google.auth.transport.requests import Request
