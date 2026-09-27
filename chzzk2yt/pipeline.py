@@ -22,8 +22,9 @@ def quota_day() -> str:
 
 
 class Notifier:
+    """중요한 알림을 로그에 남긴다 (외부로 보내지 않음). once_per_day 키는 하루 한 번만."""
+
     def __init__(self, cfg, db: DB):
-        self.url = cfg["notify"]["discord_webhook"]
         self.db = db
 
     def __call__(self, msg: str, once_per_day: str | None = None):
@@ -33,14 +34,7 @@ class Notifier:
             if self.db.get_kv(key) == today:
                 return
             self.db.set_kv(key, today)
-        if not self.url:
-            return
-        try:
-            import requests
-
-            requests.post(self.url, json={"content": msg[:1900]}, timeout=10)
-        except Exception as e:
-            log.warning("알림 전송 실패: %r", e)
+        log.info("알림: %s", msg)
 
 
 # ── 스캔 ───────────────────────────────────────────────

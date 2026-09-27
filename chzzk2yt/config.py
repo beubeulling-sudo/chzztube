@@ -43,7 +43,6 @@ DEFAULTS = {
         "NID_AUT": "",
         "NID_SES": "",
     },
-    "notify": {"discord_webhook": ""},
     "update": {"repo": "beubeulling-sudo/chzztube", "branch": "main"},
     "channels": [],
 }

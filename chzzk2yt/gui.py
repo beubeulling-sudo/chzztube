@@ -319,7 +319,6 @@ class SettingsDialog(QDialog):
         ("cookies", "mode", "쿠키 방식", "choice", ["browser", "manual", "none"]),
         ("cookies", "browser_channel", "브라우저", "choice", ["msedge", "chrome", "chromium"]),
         ("cookies", "headless", "쿠키 갱신 시 창 숨김", "bool", None),
-        ("notify", "discord_webhook", "디스코드 웹훅", "str", None),
     ]
 
     def __init__(self, parent, cfg):

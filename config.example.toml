@@ -48,9 +48,6 @@ NID_SES = ""
 repo   = "beubeulling-sudo/chzztube"   # 업데이트 버튼이 최신 버전을 받아오는 깃허브 저장소
 branch = "main"
 
-[notify]
-discord_webhook = ""   # 업로드 완료/실패/쿠키 만료/쿼터 초과 알림. 비우면 끔
-
 # ── 감시할 채널 (여러 개 가능) ─────────────────────────────
 # id: 채널 URL https://chzzk.naver.com/<여기 32자리> 부분
 # start: "new"   = 처음 등록한 시점 이후 올라오는 것만 (기본)
