@@ -904,8 +904,10 @@ class Main(QMainWindow):
         else:
             self.c_yt.set("업로드 꺼짐", "설정에서 켤 수 있음", "info")
         self._submit("task", check_task)
-        if not getattr(self, "_upd_checked", False):
-            self._upd_checked = True
+        # 켤 때 한 번만 확인하면, 그때 실패하거나 켜 둔 사이 새 버전이 나와도 표시가 안 뜬다.
+        # 성공하면 30분마다, 실패하면 다음 상태 새로고침(5분) 때 다시 확인한다.
+        if time.time() - getattr(self, "_upd_at", 0) > (30 * 60 if getattr(self, "_upd_ok", False) else 4 * 60):
+            self._upd_at = time.time()
             self._submit("update", _update_check)
 
     def _on_job(self, key, res):
@@ -945,7 +947,9 @@ class Main(QMainWindow):
                 if exp_state in ("warn", "bad"):
                     self._auth_reminder(exp_txt)
         elif key == "update":
+            self._upd_ok = isinstance(res, tuple)
             if isinstance(res, tuple) and res[2]:
+                first = res[1] != getattr(self, "_new_ver", None)  # 같은 버전 알림은 한 번만
                 self._new_ver = res[1]
                 self._new_notes = res[3]
                 if res[3]:
@@ -954,7 +958,7 @@ class Main(QMainWindow):
                 self.b_update.setObjectName("primary")
                 self.b_update.style().unpolish(self.b_update)
                 self.b_update.style().polish(self.b_update)
-                if self.tray:
+                if self.tray and first:
                     self.tray.showMessage("치지직 → 유튜브", f"새 버전 v{res[1]}이 있습니다. '업데이트' 버튼을 누르세요.",
                                           QSystemTrayIcon.Information, 8000)
         elif key == "pltitles":
