@@ -55,8 +55,14 @@ def _state_path(data_dir: Path) -> Path:
     return data_dir / "naver_cookies.json"
 
 
+def _is_naver(domain: str) -> bool:
+    """naver.com 과 그 하위 도메인만 (xnaver.com 같은 다른 도메인은 제외)."""
+    d = domain.lower().lstrip(".")
+    return d == "naver.com" or d.endswith(".naver.com")
+
+
 def _dump_state(ctx, data_dir: Path):
-    all_ck = [c for c in ctx.cookies() if c.get("domain", "").endswith("naver.com")]
+    all_ck = [c for c in ctx.cookies() if _is_naver(c.get("domain", ""))]
     _state_path(data_dir).write_text(json.dumps(all_ck, ensure_ascii=False), encoding="utf-8")
 
 

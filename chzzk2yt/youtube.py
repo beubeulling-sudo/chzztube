@@ -456,7 +456,10 @@ def add_to_playlist(svc, playlist_id: str, video_id: str, top: bool = False, pos
 def thumb_candidates(url: str) -> list[str]:
     """치지직 썸네일은 목록 API가 500x280 축소본(?type=o500x280_blur)을 준다.
     같은 이미지의 1280x720(유튜브 권장 크기) → 원본 순으로 시도한다."""
-    if "pstatic.net" in url:
+    from urllib.parse import urlparse
+
+    host = (urlparse(url).hostname or "").lower()
+    if host == "pstatic.net" or host.endswith(".pstatic.net"):
         base = url.split("?")[0]
         return [base + "?type=w1280", base, url]
     return [url]
