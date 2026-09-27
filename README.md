@@ -48,7 +48,6 @@ v1.1 이하를 쓰던 분은 한 번만 수동으로: Download ZIP → 압축 �
 | `googleapis.com` (유튜브 API) | 영상 업로드, 재생목록 추가, 썸네일 적용 |
 | `github.com`, `api.github.com`, `raw.githubusercontent.com`, `codeload.github.com` | 업데이트 확인·받기, 설치 때 다운로더 받기 |
 | `astral.sh` | 설치 때 파이썬 설치 도구(uv)가 없으면 공식 사이트에서 받기 |
-| 사용자가 직접 넣은 디스코드 웹훅 | 알림 (설정에서 넣었을 때만. 기본값은 꺼짐) |
 
 **계정 정보는 내 PC에만 저장됩니다**
 - 유튜브 인증은 **사용자 본인이 만든 구글 API 파일**(client_secret.json)로 합니다. 로그인 토큰은 개발자를 거치지 않고, 개발자는 여러분의 유튜브 계정에 접근할 수 없습니다.
