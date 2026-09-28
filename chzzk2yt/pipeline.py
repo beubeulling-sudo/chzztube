@@ -170,10 +170,25 @@ def _hms(s) -> str:
     return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}"
 
 
+WAIT_PREFIX = "게시 후 "  # 대기 안내 문구 앞머리 (목록이 알아보고 남은 시간을 새로 계산하는 데 씀)
+
+
+def wait_text(publish_ts, min_age: int) -> str | None:
+    """게시 후 대기 규칙(min_age_minutes)에 걸려 있으면 안내 문구, 아니면 None."""
+    if not publish_ts:
+        return None
+    age = (time.time() * 1000 - publish_ts) / 60000
+    if age >= min_age:
+        return None
+    ready = time.strftime("%H:%M", time.localtime(publish_ts / 1000 + min_age * 60))
+    return f"{WAIT_PREFIX}{int(age)}분 — {min_age}분 대기 규칙 (치지직 인코딩 완료 대기), {ready}부터 받음"
+
+
 def do_download(cfg, db: DB, r, cookies: dict, notify) -> bool:
     d = cfg["download"]
-    age_min = (time.time() * 1000 - (r["publish_ts"] or 0)) / 60000
-    if age_min < d["min_age_minutes"]:
+    wait = wait_text(r["publish_ts"], d["min_age_minutes"])
+    if wait:
+        db.update(r["video_no"], error=wait)
         return False
     no = r["video_no"]
     if r["adult"] and not cookies:
@@ -651,7 +666,7 @@ def run_once(cfg, db: DB):
             if not do_download(cfg, db, r, cookies, notify):
                 if strict:
                     r2 = db.get(r["video_no"])
-                    hold(r2, r2["error"] or "아직 다운로드되지 않음 (게시 직후 대기 등)")
+                    hold(r2, r2["error"] or "아직 다운로드되지 않음")
                     break
                 continue
             r = db.get(r["video_no"])

@@ -1120,6 +1120,8 @@ class Main(QMainWindow):
             rows = [r for r in rows if r["channel_id"] == cid]
         sig = hash(tuple((r["video_no"], r["status"], r["updated_at"]) for r in rows)) ^ self.filter.currentIndex() \
             ^ hash(-(-pause // 60)) ^ hash(cid)
+        if any(r["status"] == "NEW" for r in rows):  # 게시 후 대기 남은 시간을 1분마다 갱신
+            sig ^= hash(int(time.time() // 60))
         if not force and sig == getattr(self, "_sig", None):
             return
         self._sig = sig
@@ -1146,11 +1148,18 @@ class Main(QMainWindow):
         sel = {self.table.item(i.row(), 0).text() for i in self.table.selectionModel().selectedRows()} \
             if self.table.rowCount() else set()
         self.table.setRowCount(len(rows))
+        from .pipeline import WAIT_PREFIX, wait_text
+
+        min_age = int(self.cfg.get("download", {}).get("min_age_minutes", 30))
         for i, r in enumerate(rows):
             d = r["duration"] or 0
             ids = jload(r["youtube_ids"])
             yt = ("✔ " + " ".join(ids)) if ids else "✗ 안 올라감"
             memo = (r["error"] or "") if r["status"] != "UPLOADED" else ""
+            if r["status"] == "NEW" and (not memo or memo.startswith(WAIT_PREFIX)):
+                # 게시 후 대기 안내는 목록을 새로 그릴 때마다 다시 계산 (남은 시간이 맞게)
+                memo = wait_text(r["publish_ts"], min_age) or (
+                    "대기 끝 — 다음 실행 때 받음" if memo.startswith(WAIT_PREFIX) else memo)
             keys = r.keys()
             if not memo and "local_duration" in keys and r["local_duration"]:
                 ld = r["local_duration"]
