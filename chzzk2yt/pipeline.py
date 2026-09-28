@@ -170,6 +170,30 @@ def _hms(s) -> str:
     return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}"
 
 
+PROGRESS_KEY = "progress:"  # kv: 진행 중인 영상의 진행률 (GUI 목록이 읽어서 표시)
+
+
+def progress_writer(db: DB, video_no: int, part: str = ""):
+    """진행률을 kv에 기록하는 함수를 돌려준다. 너무 자주 쓰지 않게 2초 간격 (단계가 바뀌면 바로)."""
+    last = {"t": 0.0, "stage": None}
+
+    def write(stage: str, done: float = 0, total: float = 0, speed: float = 0):
+        now_ = time.time()
+        if stage == last["stage"] and now_ - last["t"] < 2 and done < total:
+            return
+        last.update(t=now_, stage=stage)
+        eta = int((total - done) / speed) if speed > 0 and total > done else 0
+        db.set_kv(f"{PROGRESS_KEY}{video_no}",
+                  {"stage": stage, "pct": round(done * 100 / total, 1) if total else None, "speed": speed,
+                   "eta": eta, "part": part, "at": int(now_)})
+
+    return write
+
+
+def progress_clear(db: DB, video_no: int):
+    db.conn.execute("DELETE FROM kv WHERE k=?", (f"{PROGRESS_KEY}{video_no}",))
+
+
 WAIT_PREFIX = "게시 후 "  # 대기 안내 문구 앞머리 (목록이 알아보고 남은 시간을 새로 계산하는 데 씀)
 
 
@@ -198,6 +222,8 @@ def do_download(cfg, db: DB, r, cookies: dict, notify) -> bool:
     db.update(no, status="DOWNLOADING", error=None)
     report.write(db, cfg.data_dir)
     out_dir, stem = _target(cfg, r)
+    prog = progress_writer(db, no)
+    prog("다운로드")
     try:
         expected = r["duration"] or 0
         timeout = int(d["timeout_hours"] * 3600)
@@ -207,13 +233,14 @@ def do_download(cfg, db: DB, r, cookies: dict, notify) -> bool:
         if engine == "direct":
             try:
                 path, res = downloader.download_direct(cfg.repo, no, cookies, out_dir, stem,
-                                                       d["resolution"], timeout, threads)
+                                                       d["resolution"], timeout, threads, on_progress=prog)
             except downloader._NoHls as e:
                 log.info("직접 방식 불가(%s) → 기본 다운로더 사용", e)
         if path is None:
             path, res = downloader.download(cfg.repo, chzzk.video_url(no), cookies, out_dir, stem,
                                             d["resolution"], timeout, threads)
         # ── 검증 1: 받은 파일 (스트림·길이 ±2%·앞/중간/끝 디코딩) ──
+        prog("검증")
         try:
             got = downloader.verify_media(path, expected)
         except downloader.VerifyError as ve:
@@ -223,6 +250,7 @@ def do_download(cfg, db: DB, r, cookies: dict, notify) -> bool:
         files = [path]
         n = _parts(cfg, r["duration"] or 0)
         if n > 1:
+            prog("분할")
             files = downloader.split(path, _part_seconds(r["duration"], n))
             # ── 검증 2: 분할 조각 각각 + 합계 길이 ──
             part_d = [downloader.verify_media(f) for f in files]
@@ -239,6 +267,7 @@ def do_download(cfg, db: DB, r, cookies: dict, notify) -> bool:
         _fail(cfg, db, r, "download", e, notify)
         return False
     finally:
+        progress_clear(db, no)
         report.write(db, cfg.data_dir)
 
 
@@ -274,10 +303,12 @@ def do_upload(cfg, db: DB, r, svc, notify):
                 continue  # 이미 올라간 파트
             title = _titles(cfg, r, len(files))[i]
             skey = f"upload_session:{no}:{i}"
+            prog = progress_writer(db, no, f"{i + 1}/{len(files)}" if len(files) > 1 else "")
             vid = youtube.upload(svc, f, title, _fmt(u["description_template"], r), tags,
                                  u["category_id"], privacy,
                                  session=(lambda k=skey: db.get_kv(k), lambda v, k=skey: db.set_kv(k, v)),
-                                 chunk_mb=int(u.get("chunk_mb", 256)))
+                                 chunk_mb=int(u.get("chunk_mb", 256)), on_progress=prog)
+            progress_clear(db, no)
             ids.append(vid)
             db.update(no, youtube_ids=ids)
             pl = _playlist(cfg, r)
@@ -316,6 +347,7 @@ def do_upload(cfg, db: DB, r, svc, notify):
     except Exception as e:
         _fail(cfg, db, db.get(no), "upload", e, notify)
     finally:
+        progress_clear(db, no)
         report.write(db, cfg.data_dir)
 
 

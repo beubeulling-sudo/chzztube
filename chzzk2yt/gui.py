@@ -73,6 +73,22 @@ def _python_console() -> str:
     return str(exe)
 
 
+def _progress_text(pg: dict, label: str) -> tuple[str, str]:
+    """진행 정보 → (상태 칸 글자, 메모 칸 글자)."""
+    stage, pct = pg.get("stage", ""), pg.get("pct")
+    part = f" {pg['part']}" if pg.get("part") else ""
+    if pct is None:  # 검증·분할·변환처럼 비율이 없는 단계
+        return f"{label}{part}", f"{stage} 중…"
+    st = f"{label}{part} {pct:.0f}%"
+    memo = f"{stage} {pct:.1f}%"
+    if stage == "업로드" and pg.get("speed"):
+        memo += f" · {pg['speed'] / 1e6:.1f} MB/s"
+    eta = int(pg.get("eta") or 0)
+    if eta:
+        memo += f" · 남은 시간 {eta // 3600}:{eta % 3600 // 60:02d}:{eta % 60:02d}" if eta >= 3600             else f" · 남은 시간 {eta // 60}분 {eta % 60:02d}초"
+    return st, memo
+
+
 def _load_cfg() -> dict:
     with open(CONFIG, "rb") as f:
         return tomllib.load(f)
@@ -1043,6 +1059,18 @@ class Main(QMainWindow):
         if getattr(self, "guide", None) and self.guide.isVisible():
             self.guide.refresh()
 
+    def _progress(self) -> dict:
+        """{영상번호: 진행 정보}. 5분 넘게 갱신 안 된 기록은 멈춘 작업의 흔적이라 무시."""
+        out = {}
+        try:
+            for k, v in self.db.conn.execute("SELECT k, v FROM kv WHERE k LIKE 'progress:%'"):
+                d = json.loads(v)
+                if time.time() - d.get("at", 0) < 300:
+                    out[int(k.split(":", 1)[1])] = d
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
     def _tick(self):
         self.refresh_table()
         self.refresh_log()
@@ -1122,6 +1150,8 @@ class Main(QMainWindow):
             ^ hash(-(-pause // 60)) ^ hash(cid)
         if any(r["status"] == "NEW" for r in rows):  # 게시 후 대기 남은 시간을 1분마다 갱신
             sig ^= hash(int(time.time() // 60))
+        prog = self._progress()  # 다운로드·업로드 진행률 (실행 중인 작업이 kv에 기록)
+        sig ^= hash(tuple(sorted((k, v.get("stage"), v.get("pct")) for k, v in prog.items())))
         if not force and sig == getattr(self, "_sig", None):
             return
         self._sig = sig
@@ -1189,8 +1219,12 @@ class Main(QMainWindow):
                 pv_txt = f"예정: {PRIV_KO.get(pv, pv)}" + (" (이 영상만)" if pv_src == "영상" else "")
             if r["status"] == "OUT" and not memo:
                 memo = "채널 등록 전 방송 — 올리려면 관리 → 과거 방송 가져오기"
+            st_txt = LABEL.get(r["status"], r["status"])
+            pg = prog.get(r["video_no"]) if r["status"] in ("DOWNLOADING", "UPLOADING") else None
+            if pg:
+                st_txt, memo = _progress_text(pg, st_txt)
             vals = [str(r["video_no"]), r["channel_name"] or "", r["title"] or "", (r["publish_date"] or "")[:16],
-                    f"{d // 3600}:{d % 3600 // 60:02d}", LABEL.get(r["status"], r["status"]),
+                    f"{d // 3600}:{d % 3600 // 60:02d}", st_txt,
                     f"{r['resolution']}p" if r["resolution"] else "", yt, pv_txt, th,
                     ("19+ " if r["adult"] else "") + memo]
             for j, v in enumerate(vals):

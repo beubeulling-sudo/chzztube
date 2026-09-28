@@ -203,8 +203,8 @@ def _http():
 class _Slice:
     """파일의 [start, start+length) 구간만 읽히는 file-like (메모리에 통째로 올리지 않음)."""
 
-    def __init__(self, f, start, length):
-        self.f, self.left = f, length
+    def __init__(self, f, start, length, on_read=None):
+        self.f, self.left, self.pos, self.on_read = f, length, start, on_read
         f.seek(start)
 
     def __len__(self):
@@ -216,6 +216,9 @@ class _Slice:
         n = self.left if n is None or n < 0 else min(n, self.left)
         b = self.f.read(n)
         self.left -= len(b)
+        self.pos += len(b)
+        if self.on_read:
+            self.on_read(self.pos)
         return b
 
 
@@ -230,7 +233,7 @@ def _raise_api(r):
 
 
 def upload(svc, path: Path, title: str, description: str, tags: list[str],
-           category_id: str, privacy: str, session=None, chunk_mb: int = 256) -> str:
+           category_id: str, privacy: str, session=None, chunk_mb: int = 256, on_progress=None) -> str:
     """재개 가능한 업로드. session=(get, set) 을 주면 세션 주소를 저장해 프로그램을 껐다 켜도 이어 올린다."""
     import time as _t
 
@@ -296,13 +299,19 @@ def upload(svc, path: Path, title: str, description: str, tags: list[str],
     log.info("업로드 시작: %s (%.2f GB, 조각 %dMB)", path.name, size / 1e9, chunk // 1048576)
     retry, t_begin, sent_begin = 0, _t.monotonic(), offset
     resp = None
+
+    def sent(pos):  # 보낸 바이트 → 진행률 (속도는 이번 실행 평균)
+        if on_progress:
+            el = _t.monotonic() - t_begin
+            on_progress("업로드", pos, size, (pos - sent_begin) / el if el > 0 else 0)
+
     with open(path, "rb") as f:
         while resp is None:
             end = min(offset + chunk, size) - 1
             n = end - offset + 1
             t0 = _t.monotonic()
             try:
-                r = http.put(uri, data=_Slice(f, offset, n),
+                r = http.put(uri, data=_Slice(f, offset, n, sent),
                              headers={**auth(), "Content-Range": f"bytes {offset}-{end}/{size}",
                                       "Content-Length": str(n)}, timeout=(30, 900))
             except (QuotaError, AuthError):

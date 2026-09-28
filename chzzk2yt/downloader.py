@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 
 log = logging.getLogger("chzzk2yt.download")
+# 자동 실행(pythonw, 콘솔 없음)에서 ffmpeg 같은 콘솔 프로그램을 부르면 명령 프롬프트 창이 잠깐 떴다 꺼진다 → 창 숨김
+_NO_WINDOW = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
 _hd = None
 
 
@@ -136,7 +138,7 @@ def media_duration(path: Path) -> float:
     import re
 
     r = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path)], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+                       encoding="utf-8", errors="replace", **_NO_WINDOW)
     m = re.search(r"Duration: (\d+):(\d+):(\d+\.?\d*)", r.stderr)
     return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else 0.0
 
@@ -152,7 +154,7 @@ def verify_media(path: Path, expected_s: float | None = None, tol: float = 0.02)
 
     ff = ffmpeg_exe()
     r = subprocess.run([ff, "-hide_banner", "-i", str(path)], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+                       encoding="utf-8", errors="replace", **_NO_WINDOW)
     m = re.search(r"Duration: (\d+):(\d+):(\d+\.?\d*)", r.stderr)
     if not m:
         raise VerifyError("길이를 읽을 수 없는 파일")
@@ -168,7 +170,7 @@ def verify_media(path: Path, expected_s: float | None = None, tol: float = 0.02)
     for t in (0, max(0, dur / 2), max(0, dur - 15)):
         d = subprocess.run([ff, "-v", "error", "-ss", f"{t:.1f}", "-i", str(path), "-t", "5", "-map", "0",
                             "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8",
-                           errors="replace")
+                           errors="replace", **_NO_WINDOW)
         if d.returncode != 0 or d.stderr.strip():
             raise VerifyError(f"{_hms(t)} 지점 디코딩 오류: {d.stderr.strip()[:200] or d.returncode}")
     return dur
@@ -234,7 +236,7 @@ def _pick_variant(master_text: str, base: str, preferred: int) -> tuple[str, int
 
 
 def download_direct(repo: Path, video_no: int, cookies: dict, out_dir: Path, file_stem: str,
-                    preferred_res: int, timeout_s: int, threads: int = 16) -> tuple[Path, int]:
+                    preferred_res: int, timeout_s: int, threads: int = 16, on_progress=None) -> tuple[Path, int]:
     """m3u8 조각을 직접 받아 순서대로 이어 붙이고 ffmpeg 로 mp4 변환 (재인코딩 없음).
     조각마다: 크기(Content-Length) 확인 → fMP4 구조 확인 → 깨졌으면 재시도 →
     그래도 깨진 조각(서버 원본 손상)은 살릴 수 있는 부분만 쓰고 기록한다."""
@@ -338,6 +340,9 @@ def download_direct(repo: Path, video_no: int, cookies: dict, out_dir: Path, fil
                         f.write(data)
                         done_bytes += len(data)
                 now_ = time.monotonic()
+                if on_progress:  # 조각 수 기준 진행률, 속도는 받은 조각 수/초 (남은 시간 계산용)
+                    got_n = min(i + win, len(segs))
+                    on_progress("다운로드", got_n, len(segs), got_n / max(now_ - t0, 1e-6))
                 if now_ - last_log > 30:
                     last_log = now_
                     pct = min(100, (i + win) * 100 // len(segs))
@@ -350,9 +355,11 @@ def download_direct(repo: Path, video_no: int, cookies: dict, out_dir: Path, fil
             raise DownloadError(f"손상된 조각이 너무 많습니다 ({len(lost)}개, {_hms(lost_s)})")
         log.info("조각 수신 완료 %.2f GB (%.0f분)%s → mp4 변환", done_bytes / 1e9, (time.monotonic() - t0) / 60,
                  f", 원본 손상 조각 {len(lost)}개 처리" if lost else "")
+        if on_progress:
+            on_progress("변환")
         tmp = out_path.with_name(out_path.stem + ".remux.part.mp4")
         subprocess.run([ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
-                        "-map", "0", "-c", "copy", str(tmp)], check=True)
+                        "-map", "0", "-c", "copy", str(tmp)], check=True, **_NO_WINDOW)
         os.replace(tmp, out_path)
     finally:
         raw.unlink(missing_ok=True)
@@ -379,7 +386,7 @@ def split(path: Path, part_seconds: int) -> list[Path]:
         "-reset_timestamps", "1", str(pattern),
     ]
     log.info("분할: %s (%d초 단위)", path.name, part_seconds)
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, **_NO_WINDOW)
     import re as _re
 
     pat = _re.compile(_re.escape(path.stem) + r" part\d\d" + _re.escape(path.suffix) + "$")
