@@ -74,7 +74,7 @@ class DB:
             self.conn.execute("ALTER TABLE videos ADD COLUMN thumb_unknown INTEGER")
         if "privacy" not in cols:  # 공개 범위. 올라간 영상 = 유튜브의 실제 값, 대기 영상 = 이 영상만 따로 정한 값(없으면 채널/기본)
             self.conn.execute("ALTER TABLE videos ADD COLUMN privacy TEXT")
-        if "salvaged" not in cols:  # 다시 받아도 깨져 있어 앞부분을 버리고 살린 조각 수 (유튜브 처리가 막히면 원인 후보)
+        if "salvaged" not in cols:  # 다시 받아도 깨져 있어 통째로 뺀 조각 수 (v2.5까지는 앞부분만 버리고 살린 수)
             self.conn.execute("ALTER TABLE videos ADD COLUMN salvaged INTEGER")
 
     # ── kv ────────────────────────────────────────────

@@ -409,21 +409,25 @@ def download_direct(repo: Path, video_no: int, cookies: dict, out_dir: Path, fil
             f.close()
         if pending:
             _refetch_later(pending, segs, fetch, reload_segs, on_progress)
-        lost = [(n, st, durs[n]) for n, (_, st) in sorted(pending.items())]
-        salvaged = len(lost)
-        lost_s = sum(x[2] for x in lost if x[1] == "bad")
+        # 다시 받아도 깨진 조각(치지직 원본 손상)은 통째로 뺀다. 앞부분만 잘라 살리면 키프레임 없이 남은
+        # 프레임이 섞여 유튜브 처리가 끝나지 않는 일이 있었다. 통째로 빼면 그 자리 약 2초가 비지만
+        # 조각마다 절대 시각이 있어 뒤쪽 싱크는 그대로다.
+        lost = [(n, durs[n]) for n in sorted(pending)]
+        dropped = len(lost)
+        lost_s = sum(d for _, d in lost)
         if lost_s > max(30, sum(durs) * 0.01):
             raise DownloadError(f"손상된 조각이 너무 많습니다 ({len(lost)}개, {_hms(lost_s)})")
-        for n, st, _ in lost:
-            log.warning("치지직 원본 조각 손상(다시 받아도 깨짐): %d번 (%s 지점) → %s", n, _hms(sum(durs[:n])),
-                        "앞부분 버리고 살림" if st == "salvaged" else "건너뜀")
+        for n, d in lost:
+            pending[n][0].write_bytes(b"")
+            log.warning("치지직 원본 조각 손상(다시 받아도 깨짐): %d번 (%s 지점) → 통째로 뺌 (%.1f초 비어 있음)",
+                        n, _hms(sum(durs[:n])), d)
         if len(pieces) > 1:  # 첫 묶음(raw) 뒤에 나머지를 순서대로 이어 붙인다
             with open(raw, "ab") as out:
                 for pc in pieces[1:]:
                     with open(pc, "rb") as src:
                         shutil.copyfileobj(src, out, 16 * 1024 * 1024)
         log.info("조각 수신 완료 %.2f GB (%.0f분)%s → mp4 변환", done_bytes / 1e9, (time.monotonic() - t0) / 60,
-                 f", 원본 손상 조각 {len(lost)}개 살림" if lost else "")
+                 f", 원본 손상 조각 {len(lost)}개 뺌 ({lost_s:.0f}초)" if lost else "")
         if on_progress:
             on_progress("변환")
         tmp = out_path.with_name(out_path.stem + ".remux.part.mp4")
@@ -434,7 +438,7 @@ def download_direct(repo: Path, video_no: int, cookies: dict, out_dir: Path, fil
         for pc in pieces:
             pc.unlink(missing_ok=True)
     log.info("다운로드 완료(직접): %.2f GB, %.0f분", out_path.stat().st_size / 1e9, (time.monotonic() - t0) / 60)
-    return out_path, res, salvaged
+    return out_path, res, dropped
 
 
 class _NoHls(DownloadError):

@@ -1206,7 +1206,7 @@ class Main(QMainWindow):
                     else:
                         memo += " · 유튜브 처리 대기"
                 if "salvaged" in keys and r["salvaged"]:
-                    memo += f" · 손상 조각 {r['salvaged']}개 살림"
+                    memo += f" · 원본 손상 조각 {r['salvaged']}개 뺌"
             tdone = set(jload(r["thumb_ids"])) if "thumb_ids" in keys else set()
             tn = sum(1 for v in ids if v in tdone)
             if not ids:
@@ -1268,7 +1268,7 @@ class Main(QMainWindow):
                     it.setBackground(QColor(BG_WARN))
                     it.setToolTip("유튜브가 업로드된 영상을 아직 처리하지 못했습니다. 보통 30~40분이면 끝납니다.\n"
                                   "유튜브 스튜디오에서 처리가 멈춰 있으면 유튜브에서 영상을 지운 뒤 우클릭 → 다시 업로드"
-                                  + ("\n(이 영상은 치지직 조각이 깨져 일부를 살려 붙인 파일이라 처리가 막혔을 수 있습니다)"
+                                  + ("\n(이 영상은 치지직 원본 손상 조각을 뺀 파일입니다)"
                                      if "salvaged" in keys and r["salvaged"] else ""))
                 if j == 7:
                     it.setForeground(QColor("#1a7f37" if ids else "#8c959f"))

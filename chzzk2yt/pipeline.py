@@ -434,7 +434,7 @@ def sync_youtube(cfg, db: DB, svc) -> int:
                 and time.time() - r["uploaded_at"] > 3600 and not db.get_kv(f"yt_slow:{r['video_no']}")):
             db.set_kv(f"yt_slow:{r['video_no']}", int(time.time()))  # 영상마다 한 번만 알림
             log.warning("유튜브 처리가 1시간 넘게 끝나지 않음: %s%s — 유튜브 스튜디오에서 멈춰 있으면 지우고 '다시 업로드'",
-                        r["title"], f" (손상 조각 {r['salvaged']}개 살린 파일)" if r["salvaged"] else "")
+                        r["title"], f" (치지직 원본 손상 조각 {r['salvaged']}개 뺀 파일)" if r["salvaged"] else "")
         if ids and all(s and s[0] == "processed" for s in states) and r["duration"]:
             total = sum(s[1] for s in states)
             # ── 검증 4: 유튜브 처리 후 길이 ──
