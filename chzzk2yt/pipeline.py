@@ -229,10 +229,10 @@ def do_download(cfg, db: DB, r, cookies: dict, notify) -> bool:
         timeout = int(d["timeout_hours"] * 3600)
         threads = int(d.get("max_threads", 16))
         engine = d.get("engine", "direct")
-        path = None
+        path, salvaged = None, 0
         if engine == "direct":
             try:
-                path, res = downloader.download_direct(cfg.repo, no, cookies, out_dir, stem,
+                path, res, salvaged = downloader.download_direct(cfg.repo, no, cookies, out_dir, stem,
                                                        d["resolution"], timeout, threads, on_progress=prog)
             except downloader._NoHls as e:
                 log.info("직접 방식 불가(%s) → 기본 다운로더 사용", e)
@@ -260,7 +260,7 @@ def do_download(cfg, db: DB, r, cookies: dict, notify) -> bool:
             log.info("분할 검증 통과: %s", " + ".join(_hms(x) for x in part_d))
         size = sum(f.stat().st_size for f in files)
         db.update(no, status="DOWNLOADED", resolution=res, files=[str(f) for f in files],
-                  file_size=size, downloaded_at=now(), error=None, local_duration=int(got))
+                  file_size=size, downloaded_at=now(), error=None, local_duration=int(got), salvaged=salvaged)
         log.info("다운로드 완료: %s (%d파일, %.2f GB)", r["title"], len(files), size / 1e9)
         return True
     except Exception as e:
@@ -430,6 +430,11 @@ def sync_youtube(cfg, db: DB, svc) -> int:
             changed += 1
             log.warning("유튜브 처리 실패: %s (%s)", r["title"], ", ".join(bad))
             continue
+        if (ids and any(s and s[0] == "uploaded" for s in states) and r["uploaded_at"]
+                and time.time() - r["uploaded_at"] > 3600 and not db.get_kv(f"yt_slow:{r['video_no']}")):
+            db.set_kv(f"yt_slow:{r['video_no']}", int(time.time()))  # 영상마다 한 번만 알림
+            log.warning("유튜브 처리가 1시간 넘게 끝나지 않음: %s%s — 유튜브 스튜디오에서 멈춰 있으면 지우고 '다시 업로드'",
+                        r["title"], f" (손상 조각 {r['salvaged']}개 살린 파일)" if r["salvaged"] else "")
         if ids and all(s and s[0] == "processed" for s in states) and r["duration"]:
             total = sum(s[1] for s in states)
             # ── 검증 4: 유튜브 처리 후 길이 ──

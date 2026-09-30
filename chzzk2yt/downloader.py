@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -235,6 +236,36 @@ def _pick_variant(master_text: str, base: str, preferred: int) -> tuple[str, int
     return max(below) if below else min(vars_)
 
 
+RETRY_LATER = (60, 180, 600)  # 깨진 조각만 다시 받기: 다운로드가 끝난 뒤 1분·3분·10분 기다렸다가 (최대 약 14분)
+
+
+def _refetch_later(pending: dict, segs: list[str], fetch_one, reload_segs, on_progress=None) -> None:
+    """깨진 조각(pending: 번호 → (저장 파일, 상태))만 시간을 두고 다시 받는다. 정상본을 받으면 파일을 바꾸고 목록에서 뺀다."""
+    urls = segs
+    for wait in RETRY_LATER:
+        if not pending:
+            return
+        log.info("깨진 조각 %d개 → %d분 뒤 그 조각만 다시 받기", len(pending), wait // 60)
+        end = time.monotonic() + wait
+        while time.monotonic() < end:
+            if on_progress:
+                on_progress("깨진 조각 다시 받기 대기")
+            time.sleep(min(5, max(0.0, end - time.monotonic())))
+        for n in sorted(pending):
+            try:
+                data, st = fetch_one(urls[n])
+            except Exception:  # noqa: BLE001  주소 만료 등 → 조각 목록을 새로 받아 한 번 더
+                try:
+                    urls = reload_segs()
+                    data, st = fetch_one(urls[n])
+                except Exception as e:  # noqa: BLE001
+                    log.warning("깨진 조각 %d번 다시 받기 실패: %r", n, e)
+                    continue
+            if st in ("ok", "retried"):
+                pending.pop(n)[0].write_bytes(data)
+                log.info("깨진 조각 %d번 → 나중에 다시 받아 정상본 확보", n)
+
+
 def download_direct(repo: Path, video_no: int, cookies: dict, out_dir: Path, file_stem: str,
                     preferred_res: int, timeout_s: int, threads: int = 16, on_progress=None) -> tuple[Path, int]:
     """m3u8 조각을 직접 받아 순서대로 이어 붙이고 ffmpeg 로 mp4 변환 (재인코딩 없음).
@@ -317,44 +348,82 @@ def download_direct(repo: Path, video_no: int, cookies: dict, out_dir: Path, fil
             raise DownloadError("조각 다운로드 실패")
         return last
 
+    def reload_segs() -> list[str]:
+        """조각 주소를 새로 받는다 (주소에 붙은 인증 값이 만료됐을 때). 조각 번호는 그대로."""
+        r2 = sess.get(f"https://api.chzzk.naver.com/service/v2/videos/{video_no}", timeout=30)
+        r2.raise_for_status()
+        m2 = json.loads(((r2.json() or {}).get("content") or {})["liveRewindPlaybackJson"])["media"][0]["path"]
+        _, u2 = _pick_variant(sess.get(m2, timeout=30).text, m2, res)
+        new = [urljoin(u2, ln.strip()) for ln in sess.get(u2, timeout=30).text.splitlines()
+               if ln and not ln.startswith("#")]
+        if len(new) != len(segs):
+            raise DownloadError("조각 목록이 바뀌었습니다")
+        return new
+
     raw = out_path.with_name(out_path.stem + ".direct.part")
     log.info("다운로드(직접): %sp, 조각 %d개(%s), %s", res, len(segs), _hms(sum(durs)), out_path.name)
     t0 = last_log = time.monotonic()
     done_bytes = 0
-    lost = []
+    # 깨진 조각은 그 자리에서 파일을 끊고 따로 저장해 두었다가, 몇 분 뒤 그 조각만 다시 받는다.
+    # (같은 조각이 CDN 캐시 때문에 몇 분간 계속 깨져 오다가 나중엔 정상인 경우가 있음. 조각마다
+    #  절대 시각(tfdt)이 들어 있어 제자리에 정상본을 끼우면 결과는 처음부터 제대로 받은 것과 같다.)
+    pieces = [raw]      # 순서대로 이어 붙일 파일들: 본문 조각 묶음, 깨진 조각, 본문 조각 묶음, …
+    pending = {}        # 조각 번호 → (따로 저장한 파일, 상태)
     try:
-        with open(raw, "wb") as f, cf.ThreadPoolExecutor(threads) as ex:
-            if maps:
-                f.write(fetch(urljoin(url, maps.pop()), check=False)[0])
-            win = threads * 4
-            for i in range(0, len(segs), win):
-                for k, (data, st) in enumerate(ex.map(fetch, segs[i:i + win])):
-                    if st == "retried":
-                        log.info("깨진 조각 %d번 → 다시 받아 정상본 확보", i + k)
-                        st = "ok"
-                    if st != "ok":
-                        lost.append((i + k, st, durs[i + k]))
-                        log.warning("치지직 원본 조각 손상: %d번 (%s 지점) → %s", i + k,
-                                    _hms(sum(durs[:i + k])), "앞부분 버리고 살림" if data else "건너뜀")
-                    if data:
-                        f.write(data)
-                        done_bytes += len(data)
-                now_ = time.monotonic()
-                if on_progress:  # 조각 수 기준 진행률, 속도는 받은 조각 수/초 (남은 시간 계산용)
-                    got_n = min(i + win, len(segs))
-                    on_progress("다운로드", got_n, len(segs), got_n / max(now_ - t0, 1e-6))
-                if now_ - last_log > 30:
-                    last_log = now_
-                    pct = min(100, (i + win) * 100 // len(segs))
-                    spd = done_bytes / 1e6 / (now_ - t0)
-                    log.info("다운로드 %d%% | %.2f GB | %.1f MB/s", pct, done_bytes / 1e9, spd)
-                if now_ - t0 > timeout_s:
-                    raise DownloadError("다운로드 제한 시간 초과")
+        f = open(raw, "wb")
+        try:
+            with cf.ThreadPoolExecutor(threads) as ex:
+                if maps:
+                    f.write(fetch(urljoin(url, maps.pop()), check=False)[0])
+                win = threads * 4
+                for i in range(0, len(segs), win):
+                    for k, (data, st) in enumerate(ex.map(fetch, segs[i:i + win])):
+                        n = i + k
+                        if st == "retried":
+                            log.info("깨진 조각 %d번 → 다시 받아 정상본 확보", n)
+                            st = "ok"
+                        if st != "ok":
+                            log.warning("깨진 조각 %d번 (%s 지점) → 나중에 이 조각만 다시 받기", n,
+                                        _hms(sum(durs[:n])))
+                            seg_path = raw.with_name(f"{raw.name}.seg{n}")
+                            seg_path.write_bytes(data or b"")
+                            pending[n] = (seg_path, st)
+                            f.close()
+                            f = open(raw.with_name(f"{raw.name}.{len(pieces) + 1}"), "wb")
+                            pieces += [seg_path, Path(f.name)]
+                        elif data:
+                            f.write(data)
+                        done_bytes += len(data or b"")
+                    now_ = time.monotonic()
+                    if on_progress:  # 조각 수 기준 진행률, 속도는 받은 조각 수/초 (남은 시간 계산용)
+                        got_n = min(i + win, len(segs))
+                        on_progress("다운로드", got_n, len(segs), got_n / max(now_ - t0, 1e-6))
+                    if now_ - last_log > 30:
+                        last_log = now_
+                        pct = min(100, (i + win) * 100 // len(segs))
+                        spd = done_bytes / 1e6 / (now_ - t0)
+                        log.info("다운로드 %d%% | %.2f GB | %.1f MB/s", pct, done_bytes / 1e9, spd)
+                    if now_ - t0 > timeout_s:
+                        raise DownloadError("다운로드 제한 시간 초과")
+        finally:
+            f.close()
+        if pending:
+            _refetch_later(pending, segs, fetch, reload_segs, on_progress)
+        lost = [(n, st, durs[n]) for n, (_, st) in sorted(pending.items())]
+        salvaged = len(lost)
         lost_s = sum(x[2] for x in lost if x[1] == "bad")
         if lost_s > max(30, sum(durs) * 0.01):
             raise DownloadError(f"손상된 조각이 너무 많습니다 ({len(lost)}개, {_hms(lost_s)})")
+        for n, st, _ in lost:
+            log.warning("치지직 원본 조각 손상(다시 받아도 깨짐): %d번 (%s 지점) → %s", n, _hms(sum(durs[:n])),
+                        "앞부분 버리고 살림" if st == "salvaged" else "건너뜀")
+        if len(pieces) > 1:  # 첫 묶음(raw) 뒤에 나머지를 순서대로 이어 붙인다
+            with open(raw, "ab") as out:
+                for pc in pieces[1:]:
+                    with open(pc, "rb") as src:
+                        shutil.copyfileobj(src, out, 16 * 1024 * 1024)
         log.info("조각 수신 완료 %.2f GB (%.0f분)%s → mp4 변환", done_bytes / 1e9, (time.monotonic() - t0) / 60,
-                 f", 원본 손상 조각 {len(lost)}개 처리" if lost else "")
+                 f", 원본 손상 조각 {len(lost)}개 살림" if lost else "")
         if on_progress:
             on_progress("변환")
         tmp = out_path.with_name(out_path.stem + ".remux.part.mp4")
@@ -362,9 +431,10 @@ def download_direct(repo: Path, video_no: int, cookies: dict, out_dir: Path, fil
                         "-map", "0", "-c", "copy", str(tmp)], check=True, **_NO_WINDOW)
         os.replace(tmp, out_path)
     finally:
-        raw.unlink(missing_ok=True)
+        for pc in pieces:
+            pc.unlink(missing_ok=True)
     log.info("다운로드 완료(직접): %.2f GB, %.0f분", out_path.stat().st_size / 1e9, (time.monotonic() - t0) / 60)
-    return out_path, res
+    return out_path, res, salvaged
 
 
 class _NoHls(DownloadError):

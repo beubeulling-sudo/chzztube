@@ -44,6 +44,7 @@ STATUS_BG = {  # 목록 칸 배경색 (상태별)
 }
 BG_OK, BG_WARN = "#dafbe1", "#fff1e5"
 NO_PLAYLIST = "none"  # 채널별 재생목록에서 '넣지 않음' (기본 재생목록도 쓰지 않음)
+SLOW_YT_MIN = 60  # 업로드 후 이만큼(분) 지나도 유튜브 처리가 안 끝나면 경고 표시
 PRIV_KO = {"public": "공개", "unlisted": "일부 공개", "private": "비공개"}
 PRIV_COLOR = {"public": "#1a7f37", "unlisted": "#9a6700", "private": "#57606a"}
 
@@ -1191,13 +1192,21 @@ class Main(QMainWindow):
                 memo = wait_text(r["publish_ts"], min_age) or (
                     "대기 끝 — 다음 실행 때 받음" if memo.startswith(WAIT_PREFIX) else memo)
             keys = r.keys()
+            slow_yt = False
             if not memo and "local_duration" in keys and r["local_duration"]:
                 ld = r["local_duration"]
                 memo = f"파일 검증 ✓ {ld // 3600}:{ld % 3600 // 60:02d}:{ld % 60:02d}"
                 if "yt_verified" in keys and r["yt_verified"]:
                     memo += " · 유튜브 길이 ✓"
                 elif r["status"] == "UPLOADED":
-                    memo += " · 유튜브 처리 대기"
+                    mins = int((time.time() - (r["uploaded_at"] or time.time())) // 60)
+                    if mins >= SLOW_YT_MIN:
+                        memo += f" · ⚠ 유튜브 처리 대기 {mins // 60}시간 {mins % 60}분째"
+                        slow_yt = True
+                    else:
+                        memo += " · 유튜브 처리 대기"
+                if "salvaged" in keys and r["salvaged"]:
+                    memo += f" · 손상 조각 {r['salvaged']}개 살림"
             tdone = set(jload(r["thumb_ids"])) if "thumb_ids" in keys else set()
             tn = sum(1 for v in ids if v in tdone)
             if not ids:
@@ -1254,6 +1263,13 @@ class Main(QMainWindow):
                                       "썸네일이 없으면 우클릭 → 썸네일 적용, 이미 있으면 우클릭 → 썸네일 적용됨으로 표시")
                 if j == 10 and r["error"]:
                     it.setToolTip(r["error"])
+                if j == 10 and slow_yt:
+                    it.setForeground(QColor("#bc4c00"))
+                    it.setBackground(QColor(BG_WARN))
+                    it.setToolTip("유튜브가 업로드된 영상을 아직 처리하지 못했습니다. 보통 30~40분이면 끝납니다.\n"
+                                  "유튜브 스튜디오에서 처리가 멈춰 있으면 유튜브에서 영상을 지운 뒤 우클릭 → 다시 업로드"
+                                  + ("\n(이 영상은 치지직 조각이 깨져 일부를 살려 붙인 파일이라 처리가 막혔을 수 있습니다)"
+                                     if "salvaged" in keys and r["salvaged"] else ""))
                 if j == 7:
                     it.setForeground(QColor("#1a7f37" if ids else "#8c959f"))
                     if ids:
